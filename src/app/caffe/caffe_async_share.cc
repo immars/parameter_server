@@ -16,6 +16,7 @@
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 #include "app/caffe/util.h"
+#include "app/caffe/forwarder_solver.h"
 
 using namespace caffe;
 using namespace std;
@@ -50,53 +51,10 @@ DEFINE_int32(pushstep, 3,
 DEFINE_int32(pullstep, 3,
     "DEPRECATED interval, in minibatches, between pull operation.");
 
-caffe::SolverParameter solver_param;
-Solver<float>* initCaffeSolver(int id){
+static std::shared_ptr<CaffeConfig> config;
 
-  Solver<float>* solver;
-
-  CHECK_GT(FLAGS_solver.size(), 0) << "Need a solver definition to train.";
-
-  caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  if (id < 0) {
-    id = FLAGS_gpu;
-  }
-
-  if (id < 0
-      && solver_param.solver_mode() == caffe::SolverParameter_SolverMode_GPU) {
-    id = solver_param.device_id();
-  }
-
-  // Set device id and mode
-  if (id >= 0) {
-    LOG(INFO) << "Use GPU with device ID " << id;
-    Caffe::SetDevice(id);
-    Caffe::set_mode(Caffe::GPU);
-  } else {
-    LOG(INFO) << "Use CPU.";
-    Caffe::set_mode(Caffe::CPU);
-  }
-
-  solver = caffe::GetSolver<float>(solver_param);
-
-  if (FLAGS_snapshot.size()) {
-    LOG(INFO) << "Resuming from " << FLAGS_snapshot;
-    solver->Restore(FLAGS_snapshot.c_str());
-  }
-
-  return solver;
-}
-
-caffe::Net<float>* initCaffeNet(){
-  CHECK_GT(FLAGS_solver.size(), 0) << "Need a solver definition to train.";
-
-  caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  caffe::NetParameter net_param;
-  std::string net_path = solver_param.net();
-  caffe::ReadNetParamsFromTextFileOrDie(net_path, &net_param);
-  return new caffe::Net<float>(net_param);
+void initCaffeConfig() {
+  config.reset(new CaffeConfig(FLAGS_gpu, FLAGS_solver, FLAGS_model, FLAGS_snapshot, FLAGS_workers, FLAGS_fb_only, FLAGS_synced, FLAGS_pushstep, FLAGS_pullstep));
 }
 
 #define V_WEIGHT "weight"
@@ -105,18 +63,7 @@ caffe::Net<float>* initCaffeNet(){
 #define V_ITER "iteration"
 namespace PS {
 
-static std::mutex mu_pwd;
-Solver<float>* initCaffeSolverInDir(int id, string root){
-  Lock l(mu_pwd);
-  char* cwd = getcwd(nullptr,1024);
-  LL << "previous cwd: " << cwd << " root: " << root;
-  CHECK(cwd != nullptr);
-  CHECK(0 == chdir(root.c_str()));
-  Solver<float>* solver = initCaffeSolver(id);
-  CHECK(0 == chdir(cwd));
-  free(cwd);
-  return solver;
-}
+
 void enableP2P(int numGPUs){
   for (int i=0; i<numGPUs; i++){
     cudaSetDevice(i);
@@ -173,7 +120,7 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
   virtual void init() {
     LL << myNodeID() << ", this is server " << myRank();
 
-    solver = initCaffeSolver(-1);
+    solver = initCaffeSolver(-1, *config);
 
     // initialize the weight at server
     int total_weight = 0;
@@ -399,139 +346,6 @@ App* CreateServerNode(const std::string& conf) {
   return new CaffeServer("app", conf);
 }
 
-
-class CaffeWorker;
-
-class NetForwarder {
-
-  bool terminated;
-  int id;
-  CaffeWorker* worker;
-  string rootDir;
-  caffe::Solver<float>* solver;
-  int weightVersion; // current version
-  int wantedVersion; // wanted version; increase with iterations
-  std::mutex mu_forward;
-  std::condition_variable cv_forward;
-  bool start_forward;
-  std::unique_ptr<std::thread> internalThread;
-
-  bool needDisplay;
-
-public:
-  NetForwarder(CaffeWorker* parent, int id, string workerRoot, bool display):
-    id(id),worker(parent),rootDir(workerRoot),
-    solver(nullptr),weightVersion(-1),wantedVersion(0),
-    start_forward(false),needDisplay(display){
-  }
-
-  /**
-   * by CaffeForwarder
-   */
-  void waitForwardSignal(){
-    std::unique_lock<std::mutex> l(mu_forward);
-    while(!start_forward){
-      cv_forward.wait(l);
-    }
-  }
-
-  /**
-   * by CaffeForwarder
-   */
-  void signalForwardEnd(){
-    std::unique_lock<std::mutex> l(mu_forward);
-    start_forward = false;
-    cv_forward.notify_all();
-  }
-
-  /**
-   * by CaffeWorker
-   */
-  void signalForward() {
-    std::unique_lock<std::mutex> l(mu_forward);
-    start_forward = true;
-    cv_forward.notify_all();
-  }
-
-  /**
-   * by CaffeWorker
-   */
-  void joinForwardEnd() {
-    if(!start_forward){
-      return;
-    }
-    {
-      std::unique_lock<std::mutex> l(mu_forward);
-      while(start_forward) {
-        cv_forward.wait(l);
-      }
-    }
-  }
-
-  void copyWeight();
-
-  void tryCopyWeight();
-
-  void accumulateDiff();
-
-  void pullIterations();
-
-  void start() {
-    struct timeval tv;
-    unsigned long long t0,t1,t2, t3, t4, t5;
-    if(nullptr == solver) {
-      solver = initCaffeSolverInDir(id, rootDir);
-      LL << "Inited solver On device id # " << id;
-    }
-    int iter = solver->param().max_iter() - solver->iter();
-    LL << "start training loop # " << id;
-    waitForwardSignal();
-    LL << "start() forward signal received";
-    copyWeight();
-    pullIterations();
-    for (int i = 0; i < iter; i++) {
-      t0 = tick(&tv);
-      // wait signal to forward
-      if(needDisplay){
-        solver->testPhase();
-      }
-      t1 = tick(&tv);
-      tryCopyWeight();
-      t2 = tick(&tv);
-//      LL<< "forwarder # " << id;
-      solver->forwardBackwardPhase();
-      t3 = tick(&tv);
-      this->accumulateDiff();
-      t4 = tick(&tv);
-      if(needDisplay){
-        solver->displayPhase();
-      }
-      t5 = tick(&tv);
-      // bypass all of computeUpdateValue
-      solver->stepEnd();
-      /*
-      LL << "# " << id << "\ttestPhase\t"<< (t1-t0)
-              << "\ttryCopyWeight\t"<< (t2-t1)
-              << "\tforwardBackward\t"<< (t3-t2)
-              << "\taccumulateDiff\t"<< (t4-t3)
-              << "\tdisplayPhase\t"<< (t5-t4);
-      */
-    }
-    LL << "Forwarder sending forward end signal";
-    signalForwardEnd();
-  }
-
-  void startAsync(){
-    if(!internalThread.get()){
-      internalThread.reset(new thread(&NetForwarder::start, this));
-    }
-  }
-
-  void stop() {
-    //TODO
-  }
-};
-
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
     std::stringstream ss(s);
     std::string item;
@@ -548,7 +362,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-class CaffeWorker: public App{
+class CaffeWorker: public App, public NetSolver{
 private:
 
 
@@ -610,7 +424,7 @@ public:
     LL << "worker init()";
     start_forward = false;
     start_pull = false;
-    solver = initCaffeSolver(-1);
+    solver = initCaffeSolver(-1, *config);
     //init shared parameter at worker
     weights = new VVector<float>(V_WEIGHT);
     diffs = new VVector<float>(V_DIFF);
@@ -643,7 +457,7 @@ public:
       string workerRoot = cwdString + "/" + workerRoots[id];
       LL << "creating forwarder in: " << workerRoot;
 //      CHECK(0 == chdir(workerRoot.c_str()));
-      NetForwarder* forwarder = new NetForwarder(this, id, workerRoot, display);
+      NetForwarder* forwarder = new NetForwarder(this, id, workerRoot, display, config.get());
       forwarders.push_back(forwarder);
       forwarder->startAsync();
     }
@@ -960,26 +774,6 @@ public:
     return true;
   }
 };
-void NetForwarder::copyWeight() {
-  this->worker->copyWeight(this->solver, &this->weightVersion);
-}
-
-
-void NetForwarder::tryCopyWeight() {
-  if(this->worker->tryCopyWeight(this->solver, &this->weightVersion, this->wantedVersion)){
-    // copy successful; reset version counter to this newly copied version
-    this->wantedVersion = this->weightVersion;
-  }
-  this->wantedVersion ++;
-}
-
-void NetForwarder::accumulateDiff(){
-  this->worker->gatherDiff(this->solver);
-}
-
-void NetForwarder::pullIterations(){
-  this->worker->pullIterations(this->solver);
-}
 
 } // namespace PS
 
@@ -1000,6 +794,8 @@ App* App::create(const string& name, const string& conf) {
 int main(int argc, char *argv[]) {
 
   google::ParseCommandLineFlags(&argc, &argv, true);
+
+  initCaffeConfig();
 
   auto& sys = PS::Postoffice::instance();
   sys.start(&argc, &argv);

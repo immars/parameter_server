@@ -11,8 +11,106 @@
 #include <google/protobuf/io/coded_stream.h>
 #include <glog/logging.h>
 #include "util/common.h"
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "caffe/caffe.hpp"
+#include "caffe/common.hpp"
 
 using namespace std;
+using namespace caffe;
+
+typedef std::lock_guard<std::mutex> Lock;
+
+class CaffeConfig {
+public:
+  int gpu;
+  string solver;
+  string model;
+  string snapshot;
+  string workers;
+  bool fb_only;
+  bool synced;
+  int pushstep;
+  int pullstep;
+
+  CaffeConfig(int gpu, const string& solver,
+              const string& model,
+              const string& snapshot,
+              const string& workers,
+              bool fb_only,
+              bool synced,
+              int pushstep,
+              int pullstep):
+                gpu(gpu),model(model),snapshot(snapshot)
+                ,workers(workers),
+                fb_only(fb_only), synced(synced),
+                pushstep(pushstep),pullstep(pullstep){}
+};
+
+caffe::SolverParameter solver_param;
+
+caffe::Net<float>* initCaffeNet(CaffeConfig& config){
+  CHECK_GT(config.solver.size(), 0) << "Need a solver definition to train.";
+
+  caffe::ReadProtoFromTextFileOrDie(config.solver, &solver_param);
+
+  caffe::NetParameter net_param;
+  std::string net_path = solver_param.net();
+  caffe::ReadNetParamsFromTextFileOrDie(net_path, &net_param);
+  return new caffe::Net<float>(net_param);
+}
+
+Solver<float>* initCaffeSolver(int id, CaffeConfig& config, bool sgd_only = false){
+
+  Solver<float>* solver;
+
+  CHECK_GT(config.solver.size(), 0) << "Need a solver definition to train.";
+
+  caffe::ReadProtoFromTextFileOrDie(config.solver, &solver_param);
+
+  if (id < 0) {
+    id = config.gpu;
+  }
+
+  if (id < 0
+      && solver_param.solver_mode() == caffe::SolverParameter_SolverMode_GPU) {
+    id = solver_param.device_id();
+  }
+
+  // Set device id and mode
+  if (id >= 0) {
+    LOG(INFO) << "Use GPU with device ID " << id;
+    Caffe::SetDevice(id);
+    Caffe::set_mode(Caffe::GPU);
+  } else {
+    LOG(INFO) << "Use CPU.";
+    Caffe::set_mode(Caffe::CPU);
+  }
+  if(!sgd_only){
+    solver = caffe::GetSolver<float>(solver_param);
+  }else{
+    solver = new caffe::SGDSolver<float>(solver_param);
+  }
+  if (config.snapshot.size()) {
+    LOG(INFO) << "Resuming from " << config.snapshot;
+    solver->Restore(config.snapshot.c_str());
+  }
+
+  return solver;
+}
+
+static std::mutex mu_pwd;
+Solver<float>* initSGDSolverInDir(int id, string root, CaffeConfig& config){
+  Lock l(mu_pwd);
+  char* cwd = getcwd(nullptr,1024);
+  LL << "previous cwd: " << cwd << " root: " << root;
+  CHECK(cwd != nullptr);
+  CHECK(0 == chdir(root.c_str()));
+  Solver<float>* solver = initCaffeSolver(id, config, true);
+  CHECK(0 == chdir(cwd));
+  free(cwd);
+  return solver;
+}
 
 void checkNAN(int count, const float* data, string blobName){
   bool isNan = false;
