@@ -385,6 +385,8 @@ private:
   std::mutex mu_weight; // protect write to weights
   VVector<float> *weights;// individual data ptr, same order/size as solver->net->params
 
+  std::vector<Blob<float>*>* guessMomentum; // individual data ptr, guess momentum from pulled weights
+
   std::mutex mu_diff;  //protect write to diffs diffCount
   VVector<float> *diffs;// for accumulated diff, share memory with diffBuffer (front/end)
   int diffCount; // accumulated diff count
@@ -408,6 +410,7 @@ public:
     requestedVersion = 0;
     diffBlobFront = new std::vector<Blob<float>*>();
     diffBlobBack = new std::vector<Blob<float>*>();
+    guessMomentum = new std::vector<Blob<float>*>();
   }
   ~CaffeWorker(){
     for(auto blob : (*diffBlobFront)){
@@ -416,8 +419,13 @@ public:
     for(auto blob : (*diffBlobBack)){
       delete blob;
     }
+    for(auto blob : (*guessMomentum)){
+      delete blob;
+    }
+
     delete diffBlobFront;
     delete diffBlobBack;
+    delete guessMomentum;
   }
 
   void init(){
@@ -440,6 +448,10 @@ public:
       memset(newBlob->mutable_cpu_diff(), 0, newBlob->diff()->size());
       diffBlobBack->push_back(newBlob);
       diffs->value(i).reset((*diffBlobBack)[i]->mutable_cpu_diff(), (*diffBlobBack)[i]->count(), false);
+      newBlob = new Blob<float>(blob->num(), blob->channels(), blob->height(), blob->width());
+      memset(newBlob->mutable_cpu_diff(), 0, newBlob->diff()->size());
+      memset(newBlob->mutable_cpu_data(), 0, newBlob->data()->size());
+      guessMomentum->push_back(newBlob);
     }
 
     //init pusher/puller
@@ -694,17 +706,36 @@ public:
    */
   void pullWeight(){
     LL << "begin pull weight";
-//    Task task;
-//    task.mutable_sgd()->set_cmd(SGDCall::UPDATE_MODEL);
-//    port(kServerGroup)->submitAndWait(task);
 
     Lock l(mu_weight);
+    if(!config->fb_only){
+      // save last weight to calculate momentum
+      for(int i = 0; i < guessMomentum->size(); i++){
+        auto src = weights->value(i);
+        auto destBlob = (*guessMomentum)[i];
+        memcpy(destBlob->mutable_cpu_data(), src.data(), destBlob->data()->size());
+      }
+    }
     MessagePtr msg(new Message(kServerGroup));
     msg->key = {0};
     LL << "begin pull";
     int pull_time = weights->pull(msg);
     LL << "begin waitOutMsg";
     weights->waitOutMsg(kServerGroup, pull_time);
+
+    if(!config->fb_only){
+      // calculate momentum
+      int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
+      for(int i = 0; i < guessMomentum->size(); i++){
+        auto blob = (*guessMomentum)[i];
+        const float* last = blob->cpu_data();
+        float* next = weights->value(i).data();
+        float* momentum = blob->mutable_cpu_diff();
+        caffe_sub(blob->count(), next, last, momentum);
+        caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
+      }
+    }
+      //
     {
       Lock l(mu_version);
       this->weightVersion = this->requestedVersion;
@@ -743,6 +774,12 @@ public:
         first = blob->cpu_data()[0];
       }else if(i == another->net()->params().size()-1){
         last = blob->cpu_data()[blob->count()-1];
+      }
+      if(!config->fb_only){
+        SGDSolver<float>* sgd = (SGDSolver<float>*) another;
+        auto momentum = sgd->history()[i];
+        auto guessed = (*guessMomentum)[i];
+        memcpy(momentum->mutable_cpu_data(), guessed->cpu_diff(), guessed->diff()->size());
       }
     }
     *version = weightVersion;
