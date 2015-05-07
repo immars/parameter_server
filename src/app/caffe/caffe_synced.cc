@@ -11,6 +11,7 @@
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/upgrade_proto.hpp"
 #include "app/caffe/util.h"
+
 using caffe::Blob;
 using caffe::Solver;
 using caffe::SolverParameter;
@@ -41,50 +42,10 @@ DEFINE_int32(pullstep, 3,
     "DEPRECATED interval, in minibatches, between pull operation.");
 
 
+static std::shared_ptr<CaffeConfig> config;
 
-caffe::SolverParameter solver_param;
-Solver<float>* initCaffeSolver(){
-
-  Solver<float>* solver;
-
-  CHECK_GT(FLAGS_solver.size(), 0) << "Need a solver definition to train.";
-
-  caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  if (FLAGS_gpu < 0
-      && solver_param.solver_mode() == caffe::SolverParameter_SolverMode_GPU) {
-    FLAGS_gpu = solver_param.device_id();
-  }
-
-  // Set device id and mode
-  if (FLAGS_gpu >= 0) {
-    LOG(INFO) << "Use GPU with device ID " << FLAGS_gpu;
-    Caffe::SetDevice(FLAGS_gpu);
-    Caffe::set_mode(Caffe::GPU);
-  } else {
-    LOG(INFO) << "Use CPU.";
-    Caffe::set_mode(Caffe::CPU);
-  }
-
-  solver = caffe::GetSolver<float>(solver_param);
-
-  if (FLAGS_snapshot.size()) {
-    LOG(INFO) << "Resuming from " << FLAGS_snapshot;
-    solver->Restore(FLAGS_snapshot.c_str());
-  }
-
-  return solver;
-}
-
-caffe::Net<float>* initCaffeNet(){
-  CHECK_GT(FLAGS_solver.size(), 0) << "Need a solver definition to train.";
-
-  caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
-
-  caffe::NetParameter net_param;
-  std::string net_path = solver_param.net();
-  caffe::ReadNetParamsFromTextFileOrDie(net_path, &net_param);
-  return new caffe::Net<float>(net_param);
+void initCaffeConfig() {
+  config.reset(new CaffeConfig(FLAGS_gpu, FLAGS_solver, FLAGS_model, FLAGS_snapshot, "", FLAGS_fb_only, FLAGS_synced, FLAGS_pushstep, FLAGS_pullstep));
 }
 
 #define V_WEIGHT "weight"
@@ -99,7 +60,7 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
   virtual void init() {
     LL << myNodeID() << ", this is server " << myRank();
 
-    solver = initCaffeSolver();
+    solver = initCaffeSolver(-1, *config);
 
     // initialize the weight at server
     int total_weight = 0;
@@ -343,7 +304,7 @@ public:
     LL << "worker init()";
     weight_ready = false;
     start_forward = false;
-    solver = initCaffeSolver();
+    solver = initCaffeSolver(-1, *config);
     //init shared parameter at worker
     weights = new VVector<float>(V_WEIGHT);
     diffs = new VVector<float>(V_DIFF);
