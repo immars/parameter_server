@@ -479,6 +479,13 @@ public:
     LL << "worker init() over";
   }
 
+  void clearGuessMomentum(){
+    for(int i = 0; i < guessMomentum->size(); i++){
+      auto blob = (*guessMomentum)[i];
+      memset(blob->mutable_cpu_diff(), 0, blob->diff()->size());
+    }
+  }
+
   /**
    * by run() thread
    */
@@ -595,6 +602,7 @@ public:
     this->requestedVersion = 0; // mark initial pull version as 0: default forwarder version is -1
     signalPull();
     waitPullEnd();
+    clearGuessMomentum(); // initial momentum = 0
     LL << "initial pull over";
     for (int i = 0; i < forwarders.size(); i++){
       NetForwarder* forwarder = forwarders[i];
@@ -725,6 +733,7 @@ public:
 
     if(!config->fb_only){
       // calculate momentum
+      LL << "guessing momentum from weight delta";
       int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
       for(int i = 0; i < guessMomentum->size(); i++){
         auto blob = (*guessMomentum)[i];
