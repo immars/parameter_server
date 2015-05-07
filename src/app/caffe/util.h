@@ -41,7 +41,7 @@ public:
               bool synced,
               int pushstep,
               int pullstep):
-                gpu(gpu),model(model),snapshot(snapshot)
+                gpu(gpu),solver(solver),model(model),snapshot(snapshot)
                 ,workers(workers),
                 fb_only(fb_only), synced(synced),
                 pushstep(pushstep),pullstep(pullstep){}

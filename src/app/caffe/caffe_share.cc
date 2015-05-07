@@ -657,7 +657,7 @@ App* App::create(const string& name, const string& conf) {
 int main(int argc, char *argv[]) {
 
   google::ParseCommandLineFlags(&argc, &argv, true);
-
+  initCaffeConfig();
   auto& sys = PS::Postoffice::instance();
   sys.start(&argc, &argv);
 
