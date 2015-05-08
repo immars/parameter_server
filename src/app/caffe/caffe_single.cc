@@ -207,6 +207,7 @@ public:
           break;
       }
     }
+    diffCount = 0;
   }
 
   /**
@@ -214,7 +215,7 @@ public:
    */
   void run(){
     LL << "worker run()";
-    LL << "initial pull over";
+    clearDiff();
     for (int i = 0; i < forwarders.size(); i++){
       NetForwarder* forwarder = forwarders[i];
       forwarder->signalForward();
@@ -227,6 +228,7 @@ public:
         solver->ComputeUpdateValue();
         solver->net()->Update();
         clearDiff();
+        solver->snapshotPhase();
         solver->stepEnd();
       }
       signalUpdateEnd();

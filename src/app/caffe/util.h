@@ -60,7 +60,7 @@ caffe::Net<float>* initCaffeNet(CaffeConfig& config){
   return new caffe::Net<float>(net_param);
 }
 
-Solver<float>* initCaffeSolver(int id, CaffeConfig& config, bool sgd_only = false){
+Solver<float>* initCaffeSolver(int id, CaffeConfig& config, bool sgd_only = false, bool snapshot = true){
 
   Solver<float>* solver;
 
@@ -91,7 +91,7 @@ Solver<float>* initCaffeSolver(int id, CaffeConfig& config, bool sgd_only = fals
   }else{
     solver = new caffe::SGDSolver<float>(solver_param);
   }
-  if (config.snapshot.size()) {
+  if (snapshot && config.snapshot.size()) {
     LOG(INFO) << "Resuming from " << config.snapshot;
     solver->Restore(config.snapshot.c_str());
   }
@@ -106,7 +106,7 @@ Solver<float>* initSGDSolverInDir(int id, string root, CaffeConfig& config){
   LL << "previous cwd: " << cwd << " root: " << root;
   CHECK(cwd != nullptr);
   CHECK(0 == chdir(root.c_str()));
-  Solver<float>* solver = initCaffeSolver(id, config, true);
+  Solver<float>* solver = initCaffeSolver(id, config, true, false);
   CHECK(0 == chdir(cwd));
   free(cwd);
   return solver;
