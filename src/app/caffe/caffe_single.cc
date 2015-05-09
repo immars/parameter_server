@@ -195,6 +195,20 @@ public:
     }
   }
 
+  void normalizeDiff(){
+    for(int i = 0; i < solver->net()->params().size(); i++){
+      auto blob = solver->net()->params()[i];
+      switch(Caffe::mode()){
+        case Caffe::CPU:
+          caffe_scal(blob->count(), (float)1.0 / forwarders.size(), blob->mutable_cpu_diff());
+          break;
+        case Caffe::GPU:
+          caffe_gpu_scal(blob->count(), (float)1.0 / forwarders.size(), blob->mutable_gpu_diff());
+          break;
+      }
+    }
+  }
+
   void clearDiff(){
     for(int i = 0; i < solver->net()->params().size(); i++){
       auto blob = solver->net()->params()[i];
@@ -225,6 +239,7 @@ public:
       waitUpdateSignal();
       {
         Lock l(mu_diff);
+        normalizeDiff();
         solver->ComputeUpdateValue();
         solver->net()->Update();
         clearDiff();
