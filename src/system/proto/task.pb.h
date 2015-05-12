@@ -391,6 +391,13 @@ class Task : public ::google::protobuf::Message {
   inline ::PS::BCDCall* release_bcd();
   inline void set_allocated_bcd(::PS::BCDCall* bcd);
 
+  // optional int32 version = 23;
+  inline bool has_version() const;
+  inline void clear_version();
+  static const int kVersionFieldNumber = 23;
+  inline ::google::protobuf::int32 version() const;
+  inline void set_version(::google::protobuf::int32 value);
+
   GOOGLE_PROTOBUF_EXTENSION_ACCESSORS(Task)
   // @@protoc_insertion_point(class_scope:PS.Task)
  private:
@@ -424,6 +431,8 @@ class Task : public ::google::protobuf::Message {
   inline void clear_has_sgd();
   inline void set_has_bcd();
   inline void clear_has_bcd();
+  inline void set_has_version();
+  inline void clear_has_version();
 
   ::google::protobuf::internal::ExtensionSet _extensions_;
 
@@ -442,14 +451,15 @@ class Task : public ::google::protobuf::Message {
   ::google::protobuf::RepeatedPtrField< ::PS::FilterConfig > filter_;
   ::std::string* msg_;
   ::PS::ManageNode* mng_node_;
+  int key_type_;
+  ::google::protobuf::int32 version_;
   ::PS::ManageApp* mng_app_;
   ::PS::CallSharedPara* shared_para_;
   ::PS::SGDCall* sgd_;
   ::PS::BCDCall* bcd_;
-  int key_type_;
 
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(18 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(19 + 31) / 32];
 
   friend void  protobuf_AddDesc_system_2fproto_2ftask_2eproto();
   friend void protobuf_AssignDesc_system_2fproto_2ftask_2eproto();
@@ -1358,6 +1368,28 @@ inline void Task::set_allocated_bcd(::PS::BCDCall* bcd) {
   } else {
     clear_has_bcd();
   }
+}
+
+// optional int32 version = 23;
+inline bool Task::has_version() const {
+  return (_has_bits_[0] & 0x00040000u) != 0;
+}
+inline void Task::set_has_version() {
+  _has_bits_[0] |= 0x00040000u;
+}
+inline void Task::clear_has_version() {
+  _has_bits_[0] &= ~0x00040000u;
+}
+inline void Task::clear_version() {
+  version_ = 0;
+  clear_has_version();
+}
+inline ::google::protobuf::int32 Task::version() const {
+  return version_;
+}
+inline void Task::set_version(::google::protobuf::int32 value) {
+  set_has_version();
+  version_ = value;
 }
 
 // -------------------------------------------------------------------

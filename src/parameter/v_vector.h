@@ -30,9 +30,10 @@ public:
   // before value is about to change
 //  virtual void vectorChanging(VVector<V>* data) = 0;
   // after value is set
-  virtual void vectorChanged(VVector<V>* data) = 0;
+  virtual void vectorChanged(VVector<V>* data) { };
+  virtual void vectorChanged(VVector<V>* data, MessagePtr& reply) { vectorChanged(data);}
   // before someone is requesting this vector
-  virtual void vectorGetting(VVector<V>* data) = 0;
+  virtual void vectorGetting(VVector<V>* data) { };
   //after value got from this vector
 //  virtual void vectorGot(VVector<V>* data) = 0;
 
@@ -47,6 +48,7 @@ class VVector : public SharedParameter<uint8> {
     this->listener = listener;
     this->readonly = readonly;
     this->resizable = false;
+    this->version_ = 0;
   }
   // VVector() : val_entry_size_(1) { }
   // VVector(int k) : val_entry_size_(k) { }
@@ -64,6 +66,9 @@ class VVector : public SharedParameter<uint8> {
 
   int vcount() {return this->val_.size();}
 
+  inline int version() {return this->version_;}
+  inline void setVersion(int version) {this->version_ = version;}
+
   void setResizable(bool resize) { this->resizable = resize; }
   bool isResizable() { return resizable; }
 
@@ -78,12 +83,14 @@ class VVector : public SharedParameter<uint8> {
   // functions will used by the system
   MessagePtrList slice(const MessagePtr& msg, const KeyRangeList& sep);
   void getValue(const MessagePtr& msg);
-  void setValue(const MessagePtr& msg);
+  void setValueReply(const MessagePtr& msg, MessagePtr& reply);
+  void pushed(const MessagePtr& reply);
 
   USING_SHARED_PARAMETER_INT8;
  protected:
   std::mutex mu_;
   std::unordered_map<int, SArray<V>> val_;
+  int version_; // value version counter
   int val_entry_size_;
 
   VVListener<V>* listener;
@@ -92,7 +99,14 @@ class VVector : public SharedParameter<uint8> {
 };
 
 template <typename V>
-void VVector<V>::setValue(const MessagePtr& msg) {
+void VVector<V>::pushed(const MessagePtr& reply) {
+  if (reply->task.has_version()) {
+    this->version_ = reply->task.version();
+  }
+}
+
+template <typename V>
+void VVector<V>::setValueReply(const MessagePtr& msg, MessagePtr& reply) {
   CHECK(!readonly) << "VVector[" << name() << "] is read only!";
 //  LL << "VVector::setValue received";
   // do check
@@ -116,8 +130,11 @@ void VVector<V>::setValue(const MessagePtr& msg) {
         my_val.copyFrom(recv_val);
       }
   }
+  if(msg->task.has_version()){
+    this->version_ = msg->task.version();
+  }
   if(listener){
-      listener->vectorChanged(this);
+      listener->vectorChanged(this, reply);
   }
 //  LL << "VVector::setValue leaved";
 }
@@ -133,6 +150,7 @@ void VVector<V>::getValue(const MessagePtr& msg) {
   for(int i = 0; i < val_.size(); i++){
       msg->addValue(this->value(i));
   }
+  msg->task.set_version(this->version_);
 }
 
 // partition is a sorted key ranges

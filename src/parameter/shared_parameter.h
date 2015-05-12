@@ -62,9 +62,15 @@ class SharedParameter : public Customer {
   }
  protected:
   // fill the values specified by the key lists in msg
-  virtual void getValue(const MessagePtr& msg) = 0;
+  virtual void getValue(const MessagePtr& msg) {}
   // set the received KV pairs into my data strcuture
-  virtual void setValue(const MessagePtr& msg) = 0;
+  virtual void setValue(const MessagePtr& msg) {}
+  // set the received KV pairs into my data strcuture, with reply message supplied
+  virtual void setValueReply(const MessagePtr& msg, MessagePtr& reply) {setValue(msg);};
+  // callback when push() returned from server with reply
+  virtual void pushed(const MessagePtr& reply) {}
+
+
   // the message contains the backup KV pairs sent by the master node of the key
   // segment to its replica node. merge these pairs into my replica, say
   // replica_[msg->sender] = ...
@@ -145,16 +151,29 @@ void SharedParameter<K>::process(const MessagePtr& msg) {
       }
     }
   } else {
-    if ((push && req) || (pull && !req)) {
-      setValue(msg);
-    } else if (pull && req) {
-      getValue(reply);
+    if (req) {
+      if (push) {
+        setValueReply(msg, reply);
+      }else if (pull) {
+        getValue(reply);
+      }
+    } else {
+      if (push) {
+        pushed(msg);
+      }else if (pull) {
+        getValue(msg);
+      }
     }
+//    if ((push && req) || (pull && !req)) {
+//      setValue(msg);
+//    } else if (pull && req) {
+//      getValue(reply);
+//    }
   }
   // this->sys_.hb().stopTimer(HeartbeatInfo::TimerType::BUSY);
 
   // reply if necessary
-  if (pull && req) {
+  if ((pull || push) && req) {
     port(reply->recver)->encodeFilter(reply);
     sys_.queue(reply);
     msg->replied = true;

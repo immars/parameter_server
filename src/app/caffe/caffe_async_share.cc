@@ -268,11 +268,14 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
     signalUpdate();
   }
 
-  void vectorChanged(VVector<float>* data){
+  void vectorChanged(VVector<float>* data, MessagePtr& reply){
 //    LL << "vector change received:" << data->name();
     CHECK_EQ(data, this->diffs) << "server only accept diff changes";
+    int diffStartVersion = data->version();
+    CHECK_LE(diffStartVersion, solver->iter());
+    int lag = solver->iter() - diffStartVersion;
     accumulateDiff();
-
+    reply->task.set_version(lag);
  }
   void vectorChanged(VVector<char>* data){
     CHECK(false) << "shouldn't be any VVector<char> change: "<< data->name();
@@ -292,6 +295,7 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
           last = blob->cpu_data()[blob->count()-1];
         }
       }
+      weights->setVersion(solver->iter());
       LL << "weight synced: ["<<first<<","<<last<<"]";
     } else {
       CHECK(false) << "some one is getting none-gettable! " << data->name();
@@ -685,13 +689,14 @@ public:
     MessagePtr msg(new Message(kServerGroup));
     msg->key = {0};
     msg->task.set_key_channel(0);
+    /*
     for(int i = 0; i < diffs->vcount();i++){
       auto acc = (*diffBlobBack)[i];
       acc->cpu_diff(); // sync to cpu
       auto diff = diffs->value(i);
       CHECK_EQ(acc->cpu_diff(), diff.data());
-      msg->addValue(diff);
-    }
+    }*/
+    diffs->getValue(msg);
     int push_time = diffs->push(msg);
     diffs->waitOutMsg(kServerGroup, push_time);
     //clear previous diff
@@ -724,6 +729,7 @@ public:
         memcpy(destBlob->mutable_cpu_data(), src.data(), destBlob->data()->size());
       }
     }
+    int lastWeightVersion = weights->version();
     MessagePtr msg(new Message(kServerGroup));
     msg->key = {0};
     LL << "begin pull";
@@ -734,14 +740,17 @@ public:
     if(!config->fb_only){
       // calculate momentum
       LL << "guessing momentum from weight delta";
-      int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
-      for(int i = 0; i < guessMomentum->size(); i++){
-        auto blob = (*guessMomentum)[i];
-        const float* last = blob->cpu_data();
-        float* next = weights->value(i).data();
-        float* momentum = blob->mutable_cpu_diff();
-        caffe_sub(blob->count(), next, last, momentum);
-        caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
+//      int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
+      int serverUpdates = weights->version() - lastWeightVersion;
+      if (serverUpdates > 0) {
+        for(int i = 0; i < guessMomentum->size(); i++){
+          auto blob = (*guessMomentum)[i];
+          const float* last = blob->cpu_data();
+          float* next = weights->value(i).data();
+          float* momentum = blob->mutable_cpu_diff();
+          caffe_sub(blob->count(), next, last, momentum);
+          caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
+        }
       }
     }
       //

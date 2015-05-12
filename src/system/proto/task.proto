@@ -49,6 +49,9 @@ message Task {
   optional SGDCall sgd = 21;
   optional BCDCall bcd = 22;
 
+  // version counter for values
+  optional int32 version = 23;
+  
   extensions 100 to 199;
 }
 
