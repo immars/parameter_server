@@ -740,7 +740,8 @@ public:
         const float* last = blob->cpu_data();
         float* next = weights->value(i).data();
         float* momentum = blob->mutable_cpu_diff();
-        caffe_sub(blob->count(), next, last, momentum);
+        // momentum is the opposite direction of weights got updated
+        caffe_sub(blob->count(), last, next, momentum);
         caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
       }
     }
