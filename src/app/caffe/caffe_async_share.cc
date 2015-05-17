@@ -274,8 +274,8 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
     int diffStartVersion = data->version();
     CHECK_LE(diffStartVersion, solver->iter());
     int lag = solver->iter() - diffStartVersion;
+    reply->task.set_version(solver->iter());
     accumulateDiff();
-    reply->task.set_version(lag);
  }
   void vectorChanged(VVector<char>* data){
     CHECK(false) << "shouldn't be any VVector<char> change: "<< data->name();
@@ -408,6 +408,9 @@ private:
 
   std::vector<NetForwarder*> forwarders;
 
+  std::unique_ptr<Sequence<float>> serverVersions;
+  std::unique_ptr<Sequence<float>> swapTimestamp;
+
 public:
   CaffeWorker(const string& name, const string& conf):App(name){
     weightVersion = 0;
@@ -415,6 +418,9 @@ public:
     diffBlobFront = new std::vector<Blob<float>*>();
     diffBlobBack = new std::vector<Blob<float>*>();
     guessMomentum = new std::vector<Blob<float>*>();
+
+    serverVersions.reset(new Sequence<float>(8));
+    swapTimestamp.reset(new Sequence<float>(8));
   }
   ~CaffeWorker(){
     for(auto blob : (*diffBlobFront)){
@@ -671,6 +677,7 @@ public:
    * by pusher, synchronized (block until message sent)
    */
   void pushDiff(){
+    struct timeval tv;
     {
       // copy diff to diffBuffer
       Lock l(mu_diff);
@@ -679,6 +686,7 @@ public:
       LL << "Worker diff("<< diffCount <<") swapped to back";
       // clear diff count
       diffCount = 0;
+      swapTimestamp->push(tick(&tv));
     }
     // reset diffs Vector pointer; sync blob diff to cpu
     for(int i = 0; i < diffBlobBack->size(); i++){
@@ -699,6 +707,7 @@ public:
     diffs->getValue(msg);
     int push_time = diffs->push(msg);
     diffs->waitOutMsg(kServerGroup, push_time);
+    serverVersions->push(diffs->version());
     //clear previous diff
     for(auto acc : (*diffBlobBack)){
       switch(Caffe::mode()){

@@ -47,6 +47,55 @@ public:
                 pushstep(pushstep),pullstep(pullstep){}
 };
 
+template <typename D>
+class Sequence {
+private:
+  D* values;
+  int head;
+  int capacity;
+  int count;
+
+public:
+  Sequence(int capacity):
+    head(0),capacity(capacity),count(0){
+    if (capacity <= 0) {
+      capacity = 1;
+    }
+    values = new D[capacity];
+  }
+  ~Sequence() {
+    if(NULL != values) {
+      delete values;
+    }
+  }
+
+  void push(D v){
+    values[head] = v;
+    head = (head + 1) % size;
+    if(count < size){
+      count++;
+    }
+  }
+
+  D average() {
+    if (count == 0) {
+      return 0;
+    }
+    D sum = 0;
+    for(int i = 0; i < count; i++) {
+      sum += values[i];
+    }
+    return sum / count;
+  }
+
+  D linear(int step) {
+    if(count == 0) {
+      return 0;
+    }
+    return values[head] + step * (values[head] - values[(head+size-count+1) % size]) / count;
+  }
+};
+
 caffe::SolverParameter solver_param;
 
 caffe::Net<float>* initCaffeNet(CaffeConfig& config){

@@ -45,12 +45,16 @@ class NetForwarder {
   std::unique_ptr<std::thread> internalThread;
   bool needDisplay;
 
+  // for momentum prediction
+  std::unique_ptr<Sequence<float>> forwardTime;
+
 public:
   NetForwarder(NetSolver* parent, int id, string workerRoot, bool display, CaffeConfig* config):
     id(id),worker(parent),rootDir(workerRoot),
     solver(nullptr),weightVersion(-1),wantedVersion(0),
     start_forward(false),needDisplay(display),terminated(false){
     this->config.reset(config);
+    forwardTime.reset(new Sequence<float>(8));
   }
 
   /**
@@ -106,6 +110,7 @@ public:
       this->wantedVersion = this->weightVersion;
     }
     this->wantedVersion ++;
+    // TODO amend weight based on momentum if needed
   }
 
   void accumulateDiff(){
@@ -154,6 +159,7 @@ public:
       }
       t6 = tick(&tv);
       solver->stepEnd();
+      forwardTime->push(t3-t1);
       /*
       LL << "# " << id << "\ttestPhase\t"<< (t1-t0)
               << "\ttryCopyWeight\t"<< (t2-t1)
