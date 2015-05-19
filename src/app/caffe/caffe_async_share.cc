@@ -415,6 +415,7 @@ private:
 
   std::unique_ptr<Sequence<float>> serverVersions;
   std::unique_ptr<Sequence<float>> swapTimestamp;
+  std::mutex mu_sequence;
 
 public:
   CaffeWorker(const string& name, const string& conf):App(name){
@@ -686,6 +687,7 @@ public:
    */
   void pushDiff(){
     struct timeval tv;
+    unsigned long long swapTime = 0;
     {
       // copy diff to diffBuffer
       Lock l(mu_diff);
@@ -694,7 +696,7 @@ public:
       LL << "Worker diff("<< diffCount <<") swapped to back";
       // clear diff count
       diffCount = 0;
-      swapTimestamp->push(tick(&tv));
+      swapTime = tick(&tv);
     }
     // reset diffs Vector pointer; sync blob diff to cpu
     for(int i = 0; i < diffBlobBack->size(); i++){
@@ -717,7 +719,11 @@ public:
     int push_time = diffs->push(msg);
     LL << "begin diff waitOutMsg";
     diffs->waitOutMsg(kServerGroup, push_time);
-    serverVersions->push(diffs->version());
+    {
+      Lock l_seq(mu_sequence);
+      serverVersions->push(diffs->version());
+      swapTimestamp->push(swapTime);
+    }
     //clear previous diff
     for(auto acc : (*diffBlobBack)){
       switch(Caffe::mode()){
@@ -874,6 +880,7 @@ public:
     }
     {
       Lock l(mu_momentum); // lock weight, prevent pulling while copying
+      Lock l_seq(mu_sequence);
       now = tick(&tv);
       long nextFBEnd = now + forwardTime;
       int step = 1;
