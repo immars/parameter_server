@@ -102,10 +102,6 @@ public:
     }
   }
 
-  void copyWeight() {
-    this->worker->copyWeight(this->solver, &this->weightVersion);
-  }
-
   void tryCopyWeight(){
     if(this->worker->tryCopyWeight(this->solver,
                                    &this->weightVersion,
@@ -139,7 +135,7 @@ public:
     LL << "start training loop # " << id;
     waitForwardSignal();
     LL << "start() forward signal received";
-    copyWeight();
+    tryCopyWeight();
     pullIterations();
     for (int i = 0; i < iter; i++) {
       t0 = tick(&tv);
