@@ -860,6 +860,8 @@ public:
     float nextPush = nextPushTime(1);
     float nextPushVersion = nextPushWeight(1);
     if(nextPush == 0 || nextPushVersion == 0
+        || serverVersions->getCount() <= 1 // cannot reliably predict
+        || swapTimestamp->getCount() <= 1 // cannot reliably predict
         || (now + forwardTime < nextPush && nextPushVersion - *estimatedVersion < 0.5)) {
       // no need to amend
       return false;
@@ -869,7 +871,7 @@ public:
       now = tick(&tv);
       long nextFBEnd = now + forwardTime;
       int step = 1;
-      for(nextPush = nextPushTime(1); nextFBEnd > nextPush; step++){
+      for(nextPush = nextPushTime(1); nextFBEnd > nextPush && step < config->pullstep; step++){
         nextPush = nextPushTime(step);
       }
       step--;

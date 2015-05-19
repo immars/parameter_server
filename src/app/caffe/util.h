@@ -78,6 +78,10 @@ public:
     }
   }
 
+  int getCount() {
+    return count;
+  }
+
   D average() {
     if (count == 0) {
       return 0;
