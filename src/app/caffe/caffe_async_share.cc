@@ -414,7 +414,7 @@ private:
   std::vector<NetForwarder*> forwarders;
 
   std::unique_ptr<Sequence<float>> serverVersions;
-  std::unique_ptr<Sequence<float>> swapTimestamp;
+  std::unique_ptr<Sequence<unsigned long long>> swapTimestamp;
   std::mutex mu_sequence;
 
 public:
@@ -427,7 +427,7 @@ public:
     guessMomentum = new std::vector<Blob<float>*>();
 
     serverVersions.reset(new Sequence<float>(8));
-    swapTimestamp.reset(new Sequence<float>(8));
+    swapTimestamp.reset(new Sequence<unsigned long long>(8));
   }
   ~CaffeWorker(){
     for(auto blob : (*diffBlobFront)){
@@ -856,7 +856,7 @@ public:
     return true;
   }
 
-  float nextPushTime(int step) {
+  unsigned long long nextPushTime(int step) {
     return swapTimestamp->linear(step);
   }
 
@@ -867,7 +867,7 @@ public:
   bool amendWeight(Solver<float>* another, float* estimatedVersion, float forwardTime) {
     struct timeval tv;
     long now = tick(&tv);
-    float nextPush = nextPushTime(1);
+    unsigned long long nextPush = nextPushTime(1);
     float nextPushVersion = nextPushWeight(1);
     if(nextPush == 0 || nextPushVersion == 0
         || serverVersions->getCount() <= 1 // cannot reliably predict
@@ -891,8 +891,10 @@ public:
       }
       float deltaVersion = nextPushVersion - *estimatedVersion;
       LL << "weight amend: now\t" << now << "\tnextFBEnd\t" << nextFBEnd
+          << "\tnextPush\t" << nextPush
           << "\tmyguess\t" << *estimatedVersion
           << "\tnextVersion\t" << nextPushVersion
+          << "\tstep\t" << step
           << "\tdelta\t" << deltaVersion;
       if(deltaVersion > 0){
         for (int i = 0; i < another->net()->params().size();i++){
