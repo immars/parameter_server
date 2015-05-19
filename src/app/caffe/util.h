@@ -96,8 +96,10 @@ public:
   D linear(int step) {
     if(count == 0) {
       return 0;
+    }else if (count == 1){
+      return values[0];
     }
-    return values[head] + step * (values[head] - values[(head+capacity-count+1) % capacity]) / count;
+    return values[(head + capacity - 1) % capacity] + step * (values[(head + capacity - 1) % capacity] - values[(head+capacity-count) % capacity]) / (count - 1);
   }
 };
 
