@@ -100,6 +100,7 @@ class VVector : public SharedParameter<uint8> {
 
 template <typename V>
 void VVector<V>::pushed(const MessagePtr& reply) {
+  LL << "VVector::pushed received";
   if (reply->task.has_version()) {
     this->version_ = reply->task.version();
   }
@@ -108,7 +109,7 @@ void VVector<V>::pushed(const MessagePtr& reply) {
 template <typename V>
 void VVector<V>::setValueReply(const MessagePtr& msg, MessagePtr& reply) {
   CHECK(!readonly) << "VVector[" << name() << "] is read only!";
-//  LL << "VVector::setValue received";
+  LL << "VVector::setValueReply received";
   // do check
   CHECK_EQ(msg->value.size(), val_.size()) << "my size(" << val_.size() << ") != message size(" << msg->value.size() << ")";
   for(int i = 0; i < msg->value.size(); i++){
@@ -141,10 +142,10 @@ void VVector<V>::setValueReply(const MessagePtr& msg, MessagePtr& reply) {
 
 template <typename V>
 void VVector<V>::getValue(const MessagePtr& msg) {
+  LL << "VVector::getValue received";
   if(listener){
     listener->vectorGetting(this);
   }
-//  LL << "VVector::getValue received";
   // get the data
   msg->clearValue();
   for(int i = 0; i < val_.size(); i++){

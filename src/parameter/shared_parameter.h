@@ -108,7 +108,7 @@ void SharedParameter<K>::process(const MessagePtr& msg) {
   bool push = call.cmd() == CallSharedPara::PUSH;
   bool pull = call.cmd() == CallSharedPara::PULL;
   MessagePtr reply;
-  if (pull && req) {
+  if ((pull || push) && req) {
     reply = MessagePtr(new Message(*msg));
     reply->task.set_request(false);
     std::swap(reply->sender, reply->recver);

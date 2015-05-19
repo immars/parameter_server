@@ -708,9 +708,10 @@ public:
       auto diff = diffs->value(i);
       CHECK_EQ(acc->cpu_diff(), diff.data());
     }*/
-    diffs->getValue(msg);
     diffs->setVersion(diffVersion);
+    diffs->getValue(msg);
     int push_time = diffs->push(msg);
+    LL << "begin diff waitOutMsg";
     diffs->waitOutMsg(kServerGroup, push_time);
     serverVersions->push(diffs->version());
     //clear previous diff
