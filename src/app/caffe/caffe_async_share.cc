@@ -272,7 +272,8 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
 //    LL << "vector change received:" << data->name();
     CHECK_EQ(data, this->diffs) << "server only accept diff changes";
     int diffStartVersion = data->version();
-    CHECK_LE(diffStartVersion, solver->iter());
+    LL << "version: pushed\t" << diffStartVersion << "\tvs mine\t" << solver->iter();
+    // CHECK_LE(diffStartVersion, solver->iter());
     int lag = solver->iter() - diffStartVersion;
     reply->task.set_version(solver->iter());
     accumulateDiff();
@@ -752,16 +753,16 @@ public:
 
     if(!config->fb_only){
       // calculate momentum
-      LL << "guessing momentum from weight delta";
 //      int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
       int serverUpdates = weights->version() - lastWeightVersion;
+      LL << "guessing momentum from weight delta\t" << serverUpdates;
       if (serverUpdates > 0) {
         for(int i = 0; i < guessMomentum->size(); i++){
           auto blob = (*guessMomentum)[i];
           const float* last = blob->cpu_data();
           float* next = weights->value(i).data();
           float* momentum = blob->mutable_cpu_diff();
-          caffe_sub(blob->count(), next, last, momentum);
+          caffe_sub(blob->count(), last, next, momentum);
           caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
         }
       }
