@@ -671,6 +671,7 @@ public:
       }
 //      caffe::caffe_add(acc->count(), blob->cpu_diff(), acc->cpu_diff(), acc->mutable_cpu_diff());
     }
+    LL << "gatherDiff:old\t" << diffVersion <<"\tnew\t" << version;
     diffVersion = (diffVersion * diffCount + version) / (diffCount + 1);
     diffCount++;
     if(diffCount >= FLAGS_pushstep) {
@@ -723,6 +724,7 @@ public:
       Lock l_seq(mu_sequence);
       serverVersions->push(diffs->version());
       swapTimestamp->push(swapTime);
+      LL << "diffVersion:\t" << diffVersion << "\tserverVersion:\t" << diffs->version();
     }
     //clear previous diff
     for(auto acc : (*diffBlobBack)){
@@ -880,11 +882,13 @@ public:
       now = tick(&tv);
       long nextFBEnd = now + forwardTime;
       int step = 1;
-      for(nextPush = nextPushTime(1); nextFBEnd > nextPush && step < config->pullstep; step++){
+      for(; true ; step++){
         nextPush = nextPushTime(step);
+        nextPushVersion = nextPushWeight(step);
+        if(nextFBEnd < nextPush || step > config->pullstep){
+          break;
+        }
       }
-      step--;
-      nextPushVersion = nextPushWeight(step);
       float deltaVersion = nextPushVersion - *estimatedVersion;
       LL << "weight amend: now\t" << now << "\tnextFBEnd\t" << nextFBEnd
           << "\tmyguess\t" << *estimatedVersion
