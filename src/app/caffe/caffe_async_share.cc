@@ -894,13 +894,15 @@ public:
           << "\tmyguess\t" << *estimatedVersion
           << "\tnextVersion\t" << nextPushVersion
           << "\tdelta\t" << deltaVersion;
-      for (int i = 0; i < another->net()->params().size();i++){
-        auto blob = another->net()->params()[i];
-        float* weight = blob->mutable_cpu_data();
-        const float* momentum = (*guessMomentum)[i]->cpu_diff();
-        caffe_axpy(blob->count(), -deltaVersion, momentum, weight);
+      if(deltaVersion > 0){
+        for (int i = 0; i < another->net()->params().size();i++){
+          auto blob = another->net()->params()[i];
+          float* weight = blob->mutable_cpu_data();
+          const float* momentum = (*guessMomentum)[i]->cpu_diff();
+          caffe_axpy(blob->count(), -deltaVersion, momentum, weight);
+        }
+        *estimatedVersion = nextPushVersion;
       }
-      *estimatedVersion = nextPushVersion;
     }
     return true;
   }
