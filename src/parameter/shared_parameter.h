@@ -161,7 +161,7 @@ void SharedParameter<K>::process(const MessagePtr& msg) {
       if (push) {
         pushed(msg);
       }else if (pull) {
-        getValue(msg);
+        setValueReply(msg, reply);
       }
     }
 //    if ((push && req) || (pull && !req)) {

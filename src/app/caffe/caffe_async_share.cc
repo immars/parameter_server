@@ -275,7 +275,9 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
     LL << "version: pushed\t" << diffStartVersion << "\tvs mine\t" << solver->iter();
     // CHECK_LE(diffStartVersion, solver->iter());
     int lag = solver->iter() - diffStartVersion;
-    reply->task.set_version(solver->iter());
+    if(reply.get()){
+      reply->task.set_version(solver->iter());
+    }
     accumulateDiff();
  }
   void vectorChanged(VVector<char>* data){
@@ -390,6 +392,7 @@ private:
   std::mutex mu_weight; // protect write to weights
   VVector<float> *weights;// individual data ptr, same order/size as solver->net->params
 
+  std::mutex mu_momentum; // protect write/read to momentum
   std::vector<Blob<float>*>* guessMomentum; // individual data ptr, guess momentum from pulled weights
 
   std::mutex mu_diff;  //protect write to diffs diffCount
@@ -493,6 +496,7 @@ public:
   }
 
   void clearGuessMomentum(){
+    std::unique_lock<std::mutex> l(mu_momentum);
     for(int i = 0; i < guessMomentum->size(); i++){
       auto blob = (*guessMomentum)[i];
       memset(blob->mutable_cpu_diff(), 0, blob->diff()->size());
@@ -737,6 +741,7 @@ public:
 
     Lock l(mu_weight);
     if(!config->fb_only){
+      Lock l_mom(mu_momentum);
       // save last weight to calculate momentum
       for(int i = 0; i < guessMomentum->size(); i++){
         auto src = weights->value(i);
@@ -756,8 +761,9 @@ public:
       // calculate momentum
 //      int serverUpdates = forwarders.size() * config->pullstep * this->sys_.yp().num_workers() / config->pushstep;
       int serverUpdates = weights->version() - lastWeightVersion;
-      LL << "guessing momentum from weight delta\t" << serverUpdates;
+      LL << "guessing momentum from weight delta\t" << serverUpdates << "\t" << weights->version();
       if (serverUpdates > 0) {
+        Lock l_mom(mu_momentum);
         for(int i = 0; i < guessMomentum->size(); i++){
           auto blob = (*guessMomentum)[i];
           const float* last = blob->cpu_data();
@@ -867,7 +873,7 @@ public:
       return false;
     }
     {
-      Lock l(mu_weight); // lock weight, prevent pulling while copying
+      Lock l(mu_momentum); // lock weight, prevent pulling while copying
       now = tick(&tv);
       long nextFBEnd = now + forwardTime;
       int step = 1;

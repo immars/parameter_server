@@ -107,7 +107,6 @@ public:
   }
 
   void tryCopyWeight(){
-    struct timeval tv;
     if(this->worker->tryCopyWeight(this->solver,
                                    &this->weightVersion,
                                    this->wantedVersion)){
