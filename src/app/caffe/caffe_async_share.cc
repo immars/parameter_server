@@ -441,6 +441,7 @@ public:
     for (int i = 0; i < solver->net()->params().size();i++){
       auto blob = solver->net()->params()[i];
       weights->value(i).resize(blob->count());
+      memset(weights->value(i).data(), 0, blob->data()->size());
       auto newBlob = new Blob<float>(blob->num(), blob->channels(), blob->height(), blob->width());
       memset(newBlob->mutable_cpu_diff(), 0, newBlob->diff()->size());
       diffBlobFront->push_back(newBlob);
@@ -743,6 +744,7 @@ public:
         // momentum is the opposite direction of weights got updated
         caffe_sub(blob->count(), last, next, momentum);
         caffe_scal(blob->count(), (float)1.0 / serverUpdates, momentum);
+        LL << "momentum["<< i << "]\t" << blob->sumsq_data() << "\t" << blob->sumsq_diff();
       }
     }
       //
