@@ -259,7 +259,7 @@ public:
   /**
    * by forwarder
    */
-  void gatherDiff(Solver<float>* another) {
+  void gatherDiff(Solver<float>* another, float version) {
     struct timeval tv;
     unsigned long long t0,t1,t2, t3, t4, t5;
     t0 = tick(&tv);

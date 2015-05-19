@@ -54,6 +54,7 @@ private:
   int head;
   int capacity;
   int count;
+//  std::mutex mu;
 
 public:
   Sequence(int capacity):
@@ -71,8 +72,8 @@ public:
 
   void push(D v){
     values[head] = v;
-    head = (head + 1) % size;
-    if(count < size){
+    head = (head + 1) % capacity;
+    if(count < capacity){
       count++;
     }
   }
@@ -92,7 +93,7 @@ public:
     if(count == 0) {
       return 0;
     }
-    return values[head] + step * (values[head] - values[(head+size-count+1) % size]) / count;
+    return values[head] + step * (values[head] - values[(head+capacity-count+1) % capacity]) / count;
   }
 };
 

@@ -23,7 +23,8 @@ class NetSolver {
 public:
   virtual void copyWeight(Solver<float>* another, int* version) = 0;
   virtual bool tryCopyWeight(Solver<float>* another, int* anotherCurrentVersion, int anotherWantedVersion) = 0;
-  virtual void gatherDiff(Solver<float>* another) = 0;
+  virtual bool amendWeight(Solver<float>* another, float* estimatedVersion, float forwardTime) { };
+  virtual void gatherDiff(Solver<float>* another, float version) = 0;
   virtual void pullIterations(Solver<float>* another) = 0;
   virtual ~NetSolver() {};
 };
@@ -39,6 +40,7 @@ class NetForwarder {
   caffe::Solver<float>* solver;
   int weightVersion; // current version
   int wantedVersion; // wanted version; increase with iterations
+  float estimatedVersion; // estimated weight version on which forward/backward performed
   std::mutex mu_forward;
   std::condition_variable cv_forward;
   bool start_forward;
@@ -51,7 +53,7 @@ class NetForwarder {
 public:
   NetForwarder(NetSolver* parent, int id, string workerRoot, bool display, CaffeConfig* config):
     id(id),worker(parent),rootDir(workerRoot),
-    solver(nullptr),weightVersion(-1),wantedVersion(0),
+    solver(nullptr),weightVersion(-1),wantedVersion(0),estimatedVersion(0),
     start_forward(false),needDisplay(display),terminated(false){
     this->config.reset(config);
     forwardTime.reset(new Sequence<float>(8));
@@ -105,16 +107,22 @@ public:
   }
 
   void tryCopyWeight(){
-    if(this->worker->tryCopyWeight(this->solver, &this->weightVersion, this->wantedVersion)){
+    struct timeval tv;
+    if(this->worker->tryCopyWeight(this->solver,
+                                   &this->weightVersion,
+                                   this->wantedVersion)){
       // copy successful; reset version counter to this newly copied version
       this->wantedVersion = this->weightVersion;
+      this->estimatedVersion = this->weightVersion;
     }
     this->wantedVersion ++;
-    // TODO amend weight based on momentum if needed
+    if(!config->fb_only){
+      this->worker->amendWeight(this->solver, &this->estimatedVersion, this->forwardTime->average());
+    }
   }
 
   void accumulateDiff(){
-    this->worker->gatherDiff(this->solver);
+    this->worker->gatherDiff(this->solver, this->estimatedVersion);
   }
 
   void pullIterations(){
@@ -153,13 +161,14 @@ public:
       }
       t5 = tick(&tv);
       // bypass all of computeUpdateValue if fb_only: forward_backward_only
+      /*
       if(!config->fb_only){
         solver->ComputeUpdateValue();
         solver->net()->Update();
-      }
+      }*/
       t6 = tick(&tv);
       solver->stepEnd();
-      forwardTime->push(t3-t1);
+      forwardTime->push(t3-t2);
       /*
       LL << "# " << id << "\ttestPhase\t"<< (t1-t0)
               << "\ttryCopyWeight\t"<< (t2-t1)

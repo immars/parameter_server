@@ -394,6 +394,7 @@ private:
   std::mutex mu_diff;  //protect write to diffs diffCount
   VVector<float> *diffs;// for accumulated diff, share memory with diffBuffer (front/end)
   int diffCount; // accumulated diff count
+  float diffVersion;
 
   std::vector<Blob<float>*>* diffBlobFront; // for accumulate
   std::vector<Blob<float>*>* diffBlobBack; // for push
@@ -415,6 +416,7 @@ public:
   CaffeWorker(const string& name, const string& conf):App(name){
     weightVersion = 0;
     requestedVersion = 0;
+    diffVersion = 0;
     diffBlobFront = new std::vector<Blob<float>*>();
     diffBlobBack = new std::vector<Blob<float>*>();
     guessMomentum = new std::vector<Blob<float>*>();
@@ -639,7 +641,7 @@ public:
   /**
    * by forwarder
    */
-  void gatherDiff(Solver<float>* another) {
+  void gatherDiff(Solver<float>* another, float version) {
     struct timeval tv;
     unsigned long long t0,t1,t2, t3, t4, t5;
     t0 = tick(&tv);
@@ -663,6 +665,7 @@ public:
       }
 //      caffe::caffe_add(acc->count(), blob->cpu_diff(), acc->cpu_diff(), acc->mutable_cpu_diff());
     }
+    diffVersion = (diffVersion * diffCount + version) / (diffCount + 1);
     diffCount++;
     if(diffCount >= FLAGS_pushstep) {
       signalPush();
@@ -705,6 +708,7 @@ public:
       CHECK_EQ(acc->cpu_diff(), diff.data());
     }*/
     diffs->getValue(msg);
+    diffs->setVersion(diffVersion);
     int push_time = diffs->push(msg);
     diffs->waitOutMsg(kServerGroup, push_time);
     serverVersions->push(diffs->version());
@@ -802,12 +806,14 @@ public:
       }else if(i == another->net()->params().size()-1){
         last = blob->cpu_data()[blob->count()-1];
       }
+      /*
       if(!config->fb_only){
         SGDSolver<float>* sgd = (SGDSolver<float>*) another;
         auto momentum = sgd->history()[i];
         auto guessed = (*guessMomentum)[i];
         memcpy(momentum->mutable_cpu_data(), guessed->cpu_diff(), guessed->diff()->size());
       }
+      */
     }
     *version = weightVersion;
     LL << "weight from server:[" << first << ",...," << last << "]";
@@ -837,6 +843,51 @@ public:
     copyWeight(another, anotherCurrentVersion);
     return true;
   }
+
+  float nextPushTime(int step) {
+    return swapTimestamp->linear(step);
+  }
+
+  float nextPushWeight(int step) {
+    return this->serverVersions->linear(step);
+  }
+
+  bool amendWeight(Solver<float>* another, float* estimatedVersion, float forwardTime) {
+    struct timeval tv;
+    long now = tick(&tv);
+    float nextPush = nextPushTime(1);
+    float nextPushVersion = nextPushWeight(1);
+    if(nextPush == 0 || nextPushVersion == 0
+        || (now + forwardTime < nextPush && nextPushVersion - *estimatedVersion < 0.5)) {
+      // no need to amend
+      return false;
+    }
+    {
+      Lock l(mu_weight); // lock weight, prevent pulling while copying
+      now = tick(&tv);
+      long nextFBEnd = now + forwardTime;
+      int step = 1;
+      for(nextPush = nextPushTime(1); nextFBEnd > nextPush; step++){
+        nextPush = nextPushTime(step);
+      }
+      step--;
+      nextPushVersion = nextPushWeight(step);
+      float deltaVersion = nextPushVersion - *estimatedVersion;
+      LL << "weight amend: now\t" << now << "\tnextFBEnd\t" << nextFBEnd
+          << "\tmyguess\t" << *estimatedVersion
+          << "\tnextVersion\t" << nextPushVersion
+          << "\tdelta\t" << deltaVersion;
+      for (int i = 0; i < another->net()->params().size();i++){
+        auto blob = another->net()->params()[i];
+        float* weight = blob->mutable_cpu_data();
+        const float* momentum = (*guessMomentum)[i]->cpu_diff();
+        caffe_axpy(blob->count(), -deltaVersion, momentum, weight);
+      }
+      *estimatedVersion = nextPushVersion;
+    }
+    return true;
+  }
+
 };
 
 } // namespace PS
