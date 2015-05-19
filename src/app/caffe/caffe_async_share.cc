@@ -299,7 +299,7 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
         }
       }
       weights->setVersion(solver->iter());
-      LL << "weight synced: ["<<first<<","<<last<<"]";
+      LL << "weight synced: ["<<first<<","<<last<<"]\t" << weights->version();
     } else {
       CHECK(false) << "some one is getting none-gettable! " << data->name();
     }
@@ -386,7 +386,7 @@ private:
   bool start_pull;
 
   std::mutex mu_version; // protect change to weightVersion and requestedVersion
-  int weightVersion; // current version no. of weights, in iteration count
+//  int weightVersion; // current version no. of weights, in iteration count
   int requestedVersion; // wanted version no. of weights, in iteration count
 
   std::mutex mu_weight; // protect write to weights
@@ -419,7 +419,7 @@ private:
 
 public:
   CaffeWorker(const string& name, const string& conf):App(name){
-    weightVersion = 0;
+//    weightVersion = 0;
     requestedVersion = 0;
     diffVersion = 0;
     diffBlobFront = new std::vector<Blob<float>*>();
@@ -578,7 +578,7 @@ public:
     while(!start_pull){
       cv_pull.wait(l);
     }
-    LL << "pull signal received: " << requestedVersion << " vs " << weightVersion;
+    LL << "pull signal received: " << requestedVersion << " vs " << weights->version();
   }
 
   /**
@@ -605,7 +605,7 @@ public:
    */
   void signalPull(){
     std::unique_lock<std::mutex> l(mu_pull);
-    LL << "signal pull on: " << requestedVersion << " vs " << weightVersion;
+    LL << "signal pull on: " << requestedVersion << " vs " << weights->version();
     start_pull = true;
     cv_pull.notify_all();
   }
@@ -780,11 +780,7 @@ public:
         }
       }
     }
-      //
-    {
-      Lock l(mu_version);
-      this->weightVersion = this->requestedVersion;
-    }
+
     LL << "weight pulled from server, total:" << weights->totalSize();
   }
 
@@ -829,7 +825,7 @@ public:
       }
       */
     }
-    *version = weightVersion;
+    *version = weights->version();
     LL << "weight from server:[" << first << ",...," << last << "]";
   }
 
@@ -844,12 +840,12 @@ public:
       Lock l(mu_version);
       if(requestedVersion < anotherWantedVersion){
         requestedVersion = anotherWantedVersion;
-        if(requestedVersion - weightVersion >= FLAGS_pullstep){
+        if(requestedVersion - weights->version() >= FLAGS_pullstep){
           signalPull();
         }
       }
     }
-    if(weightVersion <= *anotherCurrentVersion){
+    if(weights->version() <= *anotherCurrentVersion){
       // no need to copy
       return false;
     }
