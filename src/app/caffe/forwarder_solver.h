@@ -48,7 +48,7 @@ class NetForwarder {
   bool needDisplay;
 
   // for momentum prediction
-  std::unique_ptr<Sequence<float>> forwardTime;
+  std::unique_ptr<Sequence<unsigned long long>> forwardTime;
 
 public:
   NetForwarder(NetSolver* parent, int id, string workerRoot, bool display, CaffeConfig* config):
@@ -56,7 +56,7 @@ public:
     solver(nullptr),weightVersion(-1),wantedVersion(0),estimatedVersion(0),
     start_forward(false),needDisplay(display),terminated(false){
     this->config.reset(config);
-    forwardTime.reset(new Sequence<float>(8));
+    forwardTime.reset(new Sequence<unsigned long long>(8));
   }
 
   /**

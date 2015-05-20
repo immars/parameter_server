@@ -279,6 +279,7 @@ class CaffeServer : public App, public VVListener<float>, public VVListener<char
       reply->task.set_version(solver->iter());
     }
     accumulateDiff();
+    LL << "accumulate end at iter: " << solver->iter();
  }
   void vectorChanged(VVector<char>* data){
     CHECK(false) << "shouldn't be any VVector<char> change: "<< data->name();
