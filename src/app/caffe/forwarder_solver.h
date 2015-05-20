@@ -23,7 +23,7 @@ class NetSolver {
 public:
   virtual void copyWeight(Solver<float>* another, int* version) = 0;
   virtual bool tryCopyWeight(Solver<float>* another, int* anotherCurrentVersion, int anotherWantedVersion) = 0;
-  virtual bool amendWeight(Solver<float>* another, float* estimatedVersion, float forwardTime) { };
+  virtual bool amendWeight(Solver<float>* another, float* estimatedVersion, unsigned long long forwardTime) { return false; };
   virtual void gatherDiff(Solver<float>* another, float version) = 0;
   virtual void pullIterations(Solver<float>* another) = 0;
   virtual ~NetSolver() {};

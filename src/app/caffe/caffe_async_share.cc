@@ -865,9 +865,9 @@ public:
     return this->serverVersions->linear(step);
   }
 
-  bool amendWeight(Solver<float>* another, float* estimatedVersion, float forwardTime) {
+  bool amendWeight(Solver<float>* another, float* estimatedVersion, unsigned long long forwardTime) {
     struct timeval tv;
-    long now = tick(&tv);
+    unsigned long long now = tick(&tv);
     unsigned long long nextPush = nextPushTime(1);
     float nextPushVersion = nextPushWeight(1);
     if(nextPush == 0 || nextPushVersion == 0
@@ -881,7 +881,7 @@ public:
       Lock l(mu_momentum); // lock weight, prevent pulling while copying
       Lock l_seq(mu_sequence);
       now = tick(&tv);
-      long nextFBEnd = now + forwardTime;
+      unsigned long long nextFBEnd = now + forwardTime;
       int step = 1;
       for(; true ; step++){
         nextPush = nextPushTime(step);
